@@ -29,6 +29,19 @@ def get_identity_key(data):
     return ""
 
 
+def get_request_meta(request):
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    return {
+        "method": request.method,
+        "path": request.path,
+        "content_type": request.META.get("CONTENT_TYPE", ""),
+        "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+        "origin": request.META.get("HTTP_ORIGIN", ""),
+        "referer": request.META.get("HTTP_REFERER", ""),
+        "ip_address": forwarded_for.split(",")[0].strip() or request.META.get("REMOTE_ADDR", ""),
+    }
+
+
 def find_existing_submission(integration, identity_key):
     if not identity_key:
         return None
@@ -115,6 +128,8 @@ class PublicIntegrationSubmissionView(APIView):
                 error_message="; ".join(
                     f"{key}: {value}" for key, value in errors.items()
                 ),
+                request_meta=get_request_meta(request),
+                response_status=status.HTTP_400_BAD_REQUEST,
             )
             return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -134,6 +149,8 @@ class PublicIntegrationSubmissionView(APIView):
             data=clean_data,
             identity_key=identity_key,
             status=IntegrationSubmissionLog.Status.SUCCESS,
+            request_meta=get_request_meta(request),
+            response_status=status.HTTP_201_CREATED,
         )
         return Response(
             {
@@ -156,6 +173,8 @@ class IntegrationSubmissionLogView(APIView):
         logs = integration.submission_logs.all()
         return Response({
             "integration": integration.name,
+            "form_id": integration.id,
+            "form_token": integration.public_id,
             "total_success": logs.filter(status=IntegrationSubmissionLog.Status.SUCCESS).count(),
             "total_errors": logs.filter(status=IntegrationSubmissionLog.Status.ERROR).count(),
             "logs": IntegrationSubmissionLogSerializer(logs, many=True).data,

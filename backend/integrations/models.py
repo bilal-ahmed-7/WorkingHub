@@ -98,6 +98,8 @@ class IntegrationSubmissionLog(models.Model):
     identity_key = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices)
     error_message = models.TextField(blank=True)
+    request_meta = models.JSONField(default=dict)
+    response_status = models.PositiveSmallIntegerField(default=201)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

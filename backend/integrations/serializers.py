@@ -89,8 +89,21 @@ class IntegrationSubmissionSerializer(serializers.ModelSerializer):
 
 class IntegrationSubmissionLogSerializer(serializers.ModelSerializer):
     integration_name = serializers.CharField(source="integration.name", read_only=True)
+    form_id = serializers.IntegerField(source="integration.id", read_only=True)
+    form_token = serializers.UUIDField(source="integration.public_id", read_only=True)
 
     class Meta:
         model = IntegrationSubmissionLog
-        fields = ["id", "integration_name", "data", "status", "error_message", "submitted_at"]
+        fields = [
+            "id",
+            "integration_name",
+            "form_id",
+            "form_token",
+            "data",
+            "status",
+            "error_message",
+            "request_meta",
+            "response_status",
+            "submitted_at",
+        ]
         read_only_fields = fields
