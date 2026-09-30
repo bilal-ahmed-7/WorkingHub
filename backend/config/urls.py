@@ -12,6 +12,8 @@ urlpatterns = [
     path("api/companies/", include("companies.urls")),
     # Audience management endpoints
     path("api/audience/", include("audience.urls")),
+    # Company integration form endpoints
+    path("api/integrations/", include("integrations.urls")),
     # Invitation endpoints
     path("api/invitations/", include("accounts.invitations.urls")),
 ]

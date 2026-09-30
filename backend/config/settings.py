@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "accounts.apps.AccountsConfig",
     "accounts.invitations.apps.InvitationsConfig",
     "audience.apps.AudienceConfig",
+    "integrations.apps.IntegrationsConfig",
 ]
 
 MIDDLEWARE = [

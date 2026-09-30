@@ -64,3 +64,19 @@ class IntegrationField(models.Model):
 
     def __str__(self) -> str:
         return f"{self.integration.name}: {self.name}"
+
+
+class IntegrationSubmission(models.Model):
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.CASCADE,
+        related_name="submissions",
+    )
+    data = models.JSONField(default=dict)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-submitted_at"]
+
+    def __str__(self) -> str:
+        return f"{self.integration.name} submission {self.pk}"

@@ -1,20 +1,17 @@
 from rest_framework import serializers
 
-from audience.models import Audience
+from integrations.models import IntegrationSubmission
 
 
 class AudienceSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Audience
+        model = IntegrationSubmission
         fields = [
             "id",
-            "email",
-            "mobile",
-            "zipcode",
-            "city",
-            "street",
-            "state",
-            "created_at",
-            "updated_at",
+            "integration_name",
+            "data",
+            "submitted_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = fields
+
+    integration_name = serializers.CharField(source="integration.name", read_only=True)

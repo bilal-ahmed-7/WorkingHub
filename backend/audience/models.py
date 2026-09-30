@@ -9,6 +9,7 @@ class Audience(models.Model):
         on_delete=models.CASCADE,
         related_name="audience",
     )
+    name= models.CharField(max_length=255)
     mobile = models.CharField(max_length=32, unique=True)
     email = models.EmailField(unique=True)
     zipcode = models.CharField(max_length=20)

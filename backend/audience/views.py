@@ -1,24 +1,15 @@
 from rest_framework import generics, permissions
 
-from audience.models import Audience
 from audience.serializers import AudienceSerializer
 from companies.permissions import IsCompanyAdmin
+from integrations.models import IntegrationSubmission
 
 
-class AudienceListCreateView(generics.ListCreateAPIView):
+class AudienceListView(generics.ListAPIView):
     serializer_class = AudienceSerializer
     permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
 
     def get_queryset(self):
-        return Audience.objects.filter(company=self.request.user.company)
-
-    def perform_create(self, serializer):
-        serializer.save(company=self.request.user.company)
-
-
-class AudienceDetailView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = AudienceSerializer
-    permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
-
-    def get_queryset(self):
-        return Audience.objects.filter(company=self.request.user.company)
+        return IntegrationSubmission.objects.filter(
+            integration__company=self.request.user.company,
+        ).select_related("integration")

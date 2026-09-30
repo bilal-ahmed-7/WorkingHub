@@ -4,7 +4,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 from companies.models import Company
-from integrations.models import Integration
+from integrations.models import Integration, IntegrationSubmission
 
 
 class IntegrationApiTests(APITestCase):
@@ -45,7 +45,7 @@ class IntegrationApiTests(APITestCase):
         self.assertEqual(len(create_response.data["fields"]), 3)
         self.assertTrue(
             create_response.data["form_url"].endswith(
-                f"/public/{create_response.data['public_id']}/"
+                f"/integrations/public/{create_response.data['public_id']}"
             )
         )
 
@@ -61,9 +61,19 @@ class IntegrationApiTests(APITestCase):
         self.assertEqual(update_response.data["name"], "Updated lead intake")
         self.assertEqual([field["name"] for field in update_response.data["fields"]], ["Email"])
 
-        public_response = self.client.get(update_response.data["form_url"])
+        public_response = self.client.get(
+            reverse("integration_public_form", kwargs={"public_id": update_response.data["public_id"]})
+        )
         self.assertEqual(public_response.status_code, status.HTTP_200_OK)
         self.assertEqual(public_response.data["fields"][0]["field_type"], "email")
+
+        submit_url = reverse(
+            "integration_public_submit",
+            kwargs={"public_id": update_response.data["public_id"]},
+        )
+        submit_response = self.client.post(submit_url, {"Email": "lead@northwind.test"}, format="json")
+        self.assertEqual(submit_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(IntegrationSubmission.objects.count(), 1)
 
         delete_response = self.client.delete(detail_url)
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
@@ -108,3 +118,13 @@ class IntegrationApiTests(APITestCase):
             self.client.post(self.list_url, duplicate_names, format="json").status_code,
             status.HTTP_400_BAD_REQUEST,
         )
+
+    def test_public_submission_requires_required_fields(self):
+        integration = Integration.objects.create(company=self.company, name="Required form")
+        integration.fields.create(name="Email", field_type="email", required=True)
+        submit_url = reverse("integration_public_submit", kwargs={"public_id": integration.public_id})
+
+        response = self.client.post(submit_url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Email", response.data)

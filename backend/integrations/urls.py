@@ -5,5 +5,6 @@ from integrations import views
 urlpatterns = [
     path("", views.IntegrationListCreateView.as_view(), name="integration_list_create"),
     path("public/<uuid:public_id>/", views.PublicIntegrationFormView.as_view(), name="integration_public_form"),
+    path("public/<uuid:public_id>/submit/", views.PublicIntegrationSubmissionView.as_view(), name="integration_public_submit"),
     path("<int:pk>/", views.IntegrationDetailView.as_view(), name="integration_detail"),
 ]

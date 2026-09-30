@@ -1,8 +1,9 @@
 from django.db import transaction
+from django.conf import settings
 from django.urls import reverse
 from rest_framework import serializers
 
-from integrations.models import Integration, IntegrationField
+from integrations.models import Integration, IntegrationField, IntegrationSubmission
 
 
 class IntegrationFieldSerializer(serializers.ModelSerializer):
@@ -46,9 +47,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "public_id", "created_at", "updated_at", "form_url"]
 
     def get_form_url(self, integration):
-        request = self.context.get("request")
-        url = reverse("integration_public_form", kwargs={"public_id": integration.public_id})
-        return request.build_absolute_uri(url) if request else url
+        return f"{settings.FRONTEND_URL.rstrip('/')}/integrations/public/{integration.public_id}"
 
     def validate_fields(self, fields):
         names = [field["name"] for field in fields]
@@ -77,3 +76,12 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 [IntegrationField(integration=instance, **field) for field in fields_data]
             )
         return instance
+
+
+class IntegrationSubmissionSerializer(serializers.ModelSerializer):
+    integration_name = serializers.CharField(source="integration.name", read_only=True)
+
+    class Meta:
+        model = IntegrationSubmission
+        fields = ["id", "integration_name", "data", "submitted_at"]
+        read_only_fields = fields
