@@ -48,7 +48,8 @@ INSTALLED_APPS = [
     # Local apps
     "companies.apps.CompaniesConfig",
     "accounts.apps.AccountsConfig",
-    "invitations.apps.InvitationsConfig",
+    "accounts.invitations.apps.InvitationsConfig",
+    "audience.apps.AudienceConfig",
 ]
 
 MIDDLEWARE = [
