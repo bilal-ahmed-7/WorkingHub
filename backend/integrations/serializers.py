@@ -3,7 +3,7 @@ from django.conf import settings
 from django.urls import reverse
 from rest_framework import serializers
 
-from integrations.models import Integration, IntegrationField, IntegrationSubmission
+from integrations.models import Integration, IntegrationField, IntegrationSubmission, IntegrationSubmissionLog
 
 
 class IntegrationFieldSerializer(serializers.ModelSerializer):
@@ -83,5 +83,14 @@ class IntegrationSubmissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = IntegrationSubmission
-        fields = ["id", "integration_name", "data", "submitted_at"]
+        fields = ["id", "integration_name", "data", "submitted_at", "updated_at"]
+        read_only_fields = fields
+
+
+class IntegrationSubmissionLogSerializer(serializers.ModelSerializer):
+    integration_name = serializers.CharField(source="integration.name", read_only=True)
+
+    class Meta:
+        model = IntegrationSubmissionLog
+        fields = ["id", "integration_name", "data", "status", "error_message", "submitted_at"]
         read_only_fields = fields

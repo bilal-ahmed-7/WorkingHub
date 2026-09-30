@@ -4,7 +4,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 from companies.models import Company
-from integrations.models import Integration, IntegrationSubmission
+from integrations.models import Integration, IntegrationSubmission, IntegrationSubmissionLog
 
 
 class IntegrationApiTests(APITestCase):
@@ -74,6 +74,16 @@ class IntegrationApiTests(APITestCase):
         submit_response = self.client.post(submit_url, {"Email": "lead@northwind.test"}, format="json")
         self.assertEqual(submit_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(IntegrationSubmission.objects.count(), 1)
+        second_submit = self.client.post(submit_url, {"Email": "lead@northwind.test"}, format="json")
+        self.assertEqual(second_submit.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(IntegrationSubmission.objects.count(), 1)
+        self.assertEqual(IntegrationSubmission.objects.get().data["Email"], "lead@northwind.test")
+        self.assertEqual(IntegrationSubmissionLog.objects.filter(status="success").count(), 2)
+
+        self.client.force_authenticate(user=self.owner)
+        logs_response = self.client.get(reverse("integration_logs", kwargs={"pk": update_response.data["id"]}))
+        self.assertEqual(logs_response.data["total_success"], 2)
+        self.assertEqual(logs_response.data["total_errors"], 0)
 
         delete_response = self.client.delete(detail_url)
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
@@ -128,3 +138,30 @@ class IntegrationApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Email", response.data)
+        self.assertEqual(IntegrationSubmissionLog.objects.get().status, "error")
+        self.assertIn("required", IntegrationSubmissionLog.objects.get().error_message)
+
+    def test_same_email_updates_existing_record_even_when_phone_changes(self):
+        integration = Integration.objects.create(company=self.company, name="Basic data form")
+        integration.fields.create(name="Enter your phone number", field_type="text")
+        integration.fields.create(name="Select your email", field_type="email", required=True)
+        submit_url = reverse("integration_public_submit", kwargs={"public_id": integration.public_id})
+
+        first = self.client.post(
+            submit_url,
+            {"Enter your phone number": "123", "Select your email": "person@example.com"},
+            format="json",
+        )
+        second = self.client.post(
+            submit_url,
+            {"Enter your phone number": "456", "Select your email": "person@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(IntegrationSubmission.objects.filter(integration=integration).count(), 1)
+        self.assertEqual(
+            IntegrationSubmission.objects.get(integration=integration).data["Enter your phone number"],
+            "456",
+        )

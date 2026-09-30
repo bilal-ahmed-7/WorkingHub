@@ -73,10 +73,35 @@ class IntegrationSubmission(models.Model):
         related_name="submissions",
     )
     data = models.JSONField(default=dict)
+    identity_key = models.CharField(max_length=255, blank=True, db_index=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-submitted_at"]
 
     def __str__(self) -> str:
         return f"{self.integration.name} submission {self.pk}"
+
+
+class IntegrationSubmissionLog(models.Model):
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"
+        ERROR = "error", "Error"
+
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.CASCADE,
+        related_name="submission_logs",
+    )
+    data = models.JSONField(default=dict)
+    identity_key = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices)
+    error_message = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-submitted_at"]
+
+    def __str__(self) -> str:
+        return f"{self.integration.name} {self.status} attempt {self.pk}"

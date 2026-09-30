@@ -1,10 +1,50 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
 
 from companies.permissions import IsCompanyAdmin
-from integrations.models import Integration, IntegrationSubmission
-from integrations.serializers import IntegrationSerializer, IntegrationSubmissionSerializer
+from integrations.models import Integration, IntegrationSubmission, IntegrationSubmissionLog
+from integrations.serializers import IntegrationSerializer, IntegrationSubmissionLogSerializer
+
+
+def get_identity_key(data):
+    normalized_keys = [(key, key.strip().lower()) for key in data]
+    candidates = [key for key, normalized in normalized_keys if "email" in normalized]
+    candidates += [
+        key for key, normalized in normalized_keys
+        if any(token in normalized for token in ("phone", "mobile"))
+    ]
+    candidates += [
+        key for key, normalized in normalized_keys
+        if normalized in {"id", "number", "user id", "customer id"}
+        or normalized.endswith(" id")
+        or normalized.endswith(" number")
+    ]
+    for key in candidates:
+        value = data.get(key)
+        if value not in (None, "", []):
+            normalized = ",".join(map(str, value)) if isinstance(value, list) else str(value)
+            return f"{key.strip().lower()}:{normalized.strip().lower()}"
+    return ""
+
+
+def find_existing_submission(integration, identity_key):
+    if not identity_key:
+        return None
+
+    candidates = list(integration.submissions.all())
+    matches = [
+        submission for submission in candidates
+        if submission.identity_key == identity_key or get_identity_key(submission.data) == identity_key
+    ]
+    if not matches:
+        return None
+
+    submission = matches[0]
+    for duplicate in matches[1:]:
+        duplicate.delete()
+    return submission
 
 
 class IntegrationListCreateView(generics.ListCreateAPIView):
@@ -65,12 +105,35 @@ class PublicIntegrationSubmissionView(APIView):
         unknown_fields = set(data) - set(fields_by_name)
         if unknown_fields:
             errors["detail"] = "The form contains an invalid field."
+        identity_key = get_identity_key(data)
         if errors:
+            IntegrationSubmissionLog.objects.create(
+                integration=integration,
+                data=data,
+                identity_key=identity_key,
+                status=IntegrationSubmissionLog.Status.ERROR,
+                error_message="; ".join(
+                    f"{key}: {value}" for key, value in errors.items()
+                ),
+            )
             return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
-        submission = IntegrationSubmission.objects.create(
+        clean_data = {field.name: data.get(field.name) for field in integration.fields.all()}
+        submission = find_existing_submission(integration, identity_key)
+        if submission:
+            submission.data = clean_data
+            submission.save()
+        else:
+            submission = IntegrationSubmission.objects.create(
+                integration=integration,
+                data=clean_data,
+                identity_key=identity_key,
+            )
+        IntegrationSubmissionLog.objects.create(
             integration=integration,
-            data={field.name: data.get(field.name) for field in integration.fields.all()},
+            data=clean_data,
+            identity_key=identity_key,
+            status=IntegrationSubmissionLog.Status.SUCCESS,
         )
         return Response(
             {
@@ -79,3 +142,21 @@ class PublicIntegrationSubmissionView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class IntegrationSubmissionLogView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
+
+    def get(self, request, pk):
+        integration = get_object_or_404(
+            Integration,
+            pk=pk,
+            company=request.user.company,
+        )
+        logs = integration.submission_logs.all()
+        return Response({
+            "integration": integration.name,
+            "total_success": logs.filter(status=IntegrationSubmissionLog.Status.SUCCESS).count(),
+            "total_errors": logs.filter(status=IntegrationSubmissionLog.Status.ERROR).count(),
+            "logs": IntegrationSubmissionLogSerializer(logs, many=True).data,
+        })
