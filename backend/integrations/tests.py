@@ -1,0 +1,110 @@
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
+
+from accounts.models import User
+from companies.models import Company
+from integrations.models import Integration
+
+
+class IntegrationApiTests(APITestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name="Northwind")
+        self.other_company = Company.objects.create(name="Contoso")
+        self.owner = User.objects.create_user(
+            email="owner@northwind.test",
+            password="Password123!",
+            role=User.Roles.ADMIN,
+            company=self.company,
+        )
+        self.worker = User.objects.create_user(
+            email="worker@northwind.test",
+            password="Password123!",
+            role=User.Roles.WORKER,
+            company=self.company,
+        )
+        self.list_url = reverse("integration_list_create")
+        self.payload = {
+            "name": "Lead intake",
+            "fields": [
+                {"name": "Full name", "field_type": "text", "required": True},
+                {"name": "Budget", "field_type": "number"},
+                {
+                    "name": "Region",
+                    "field_type": "select",
+                    "options": ["North", "South"],
+                },
+            ],
+        }
+
+    def test_admin_can_create_list_update_and_delete_integration(self):
+        self.client.force_authenticate(user=self.owner)
+
+        create_response = self.client.post(self.list_url, self.payload, format="json")
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(create_response.data["fields"]), 3)
+        self.assertTrue(
+            create_response.data["form_url"].endswith(
+                f"/public/{create_response.data['public_id']}/"
+            )
+        )
+
+        detail_url = reverse("integration_detail", kwargs={"pk": create_response.data["id"]})
+        self.assertEqual(self.client.get(self.list_url).data[0]["name"], "Lead intake")
+
+        update_response = self.client.patch(
+            detail_url,
+            {"name": "Updated lead intake", "fields": [{"name": "Email", "field_type": "email"}]},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(update_response.data["name"], "Updated lead intake")
+        self.assertEqual([field["name"] for field in update_response.data["fields"]], ["Email"])
+
+        public_response = self.client.get(update_response.data["form_url"])
+        self.assertEqual(public_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(public_response.data["fields"][0]["field_type"], "email")
+
+        delete_response = self.client.delete(detail_url)
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Integration.objects.filter(name="Updated lead intake").exists())
+
+    def test_integrations_are_isolated_by_company(self):
+        Integration.objects.create(company=self.other_company, name="Other form")
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_worker_cannot_manage_integrations(self):
+        self.client.force_authenticate(user=self.worker)
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_select_fields_require_options_and_field_names_are_unique(self):
+        self.client.force_authenticate(user=self.owner)
+
+        missing_options = {
+            "name": "Invalid form",
+            "fields": [{"name": "Region", "field_type": "select"}],
+        }
+        duplicate_names = {
+            "name": "Duplicate fields",
+            "fields": [
+                {"name": "Contact", "field_type": "text"},
+                {"name": "Contact", "field_type": "email"},
+            ],
+        }
+
+        self.assertEqual(
+            self.client.post(self.list_url, missing_options, format="json").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            self.client.post(self.list_url, duplicate_names, format="json").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
