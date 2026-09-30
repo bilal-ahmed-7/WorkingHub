@@ -127,6 +127,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
         # Authenticate with email as username
         attrs["email"] = attrs.get("email", "").strip().lower()
+        inactive_user = User.objects.filter(
+            email__iexact=attrs["email"],
+            is_active=False,
+        ).first()
+        if inactive_user and inactive_user.check_password(attrs.get("password", "")):
+            raise serializers.ValidationError(
+                "Your account has been deactivated by admin. Contact administration."
+            )
+
         data = super().validate(attrs)
 
         # Append complete serialized user profile into login response body

@@ -1,6 +1,8 @@
 from django.urls import reverse
+from django.core import mail
 from rest_framework import status
 from rest_framework.test import APITestCase
+from django.test import override_settings
 
 from accounts.models import User
 from companies.models import Company
@@ -48,6 +50,25 @@ class AccountsAuthTests(APITestCase):
         response = self.client.post(self.register_url, payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_owner_registration_sends_welcome_email(self):
+        payload = {
+            "company_name": "Welcome Corp",
+            "first_name": "Wendy",
+            "last_name": "Owner",
+            "email": "wendy@welcome.test",
+            "password": "StrongPassword123!",
+            "confirm_password": "StrongPassword123!",
+        }
+
+        response = self.client.post(self.register_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["wendy@welcome.test"])
+        self.assertIn("Welcome to WorkHub", mail.outbox[0].subject)
+        self.assertIn("Welcome Corp", mail.outbox[0].body)
+
     def test_jwt_login_and_token_refresh(self):
         company = Company.objects.create(name="Apex Corp")
         user = User.objects.create_user(
@@ -74,6 +95,25 @@ class AccountsAuthTests(APITestCase):
         refresh_resp = self.client.post(self.refresh_url, {"refresh": refresh_token}, format="json")
         self.assertEqual(refresh_resp.status_code, status.HTTP_200_OK)
         self.assertIn("access", refresh_resp.data)
+
+    def test_inactive_account_gets_deactivation_login_message(self):
+        user = User.objects.create_user(
+            email="inactive@apex.com",
+            password="StrongPassword123!",
+            is_active=False,
+        )
+
+        response = self.client.post(
+            self.login_url,
+            {"email": user.email, "password": "StrongPassword123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "Your account has been deactivated by admin. Contact administration.",
+            response.data["non_field_errors"],
+        )
 
     def test_get_and_update_profile(self):
         company = Company.objects.create(name="Apex Corp")

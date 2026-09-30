@@ -1,3 +1,7 @@
+import logging
+
+from django.conf import settings
+from django.core.mail import send_mail
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,6 +17,8 @@ from accounts.serializers import (
     UserSerializer,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class RegisterOwnerView(APIView):
     """
@@ -26,6 +32,24 @@ class RegisterOwnerView(APIView):
         serializer = CompanyOwnerRegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         result = serializer.save()
+        owner = result["user"]
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        try:
+            send_mail(
+                subject="Welcome to WorkHub",
+                message=(
+                    f"Hello {owner['first_name']},\n\n"
+                    f"Welcome to WorkHub. Your workspace for {owner['company_name']} is ready.\n\n"
+                    f"Sign in at {frontend_url}/login\n\n"
+                    "The WorkHub Team"
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[owner["email"]],
+                fail_silently=False,
+            )
+        except Exception:
+            logger.exception("Unable to send owner welcome email to %s", owner["email"])
+
         return Response(
             {
                 "message": "Company and Owner account registered successfully.",
