@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from accounts.models import User
 from companies.models import Company
 from companies.permissions import IsCompanyAdmin, IsCompanyMember
-from companies.serializers import CompanySerializer, WorkerSerializer
+from companies.serializers import CompanySerializer, WorkerSerializer, WorkerStatusSerializer
 
 
 class CompanyDetailView(generics.RetrieveUpdateAPIView):
@@ -40,11 +40,14 @@ class CompanyStatsView(APIView):
         now = timezone.now()
 
         # Import lazily to avoid circular dependency
-        from invitations.models import Invitation
-        from invitations.serializers import InvitationSerializer
+        from accounts.invitations.models import Invitation
+        from accounts.invitations.serializers import InvitationSerializer
 
         if user.is_company_admin:
-            workers_qs = User.objects.filter(company=company, role=User.Roles.WORKER)
+            workers_qs = User.objects.filter(
+                company=company,
+                role=User.Roles.WORKER,
+            ).exclude(password__startswith="!")
             pending_invites_qs = Invitation.objects.filter(
                 company=company,
                 is_accepted=False,
@@ -52,7 +55,10 @@ class CompanyStatsView(APIView):
             )
 
             total_workers = workers_qs.count()
-            active_users = User.objects.filter(company=company, is_active=True).count()
+            active_users = User.objects.filter(
+                company=company,
+                is_active=True,
+            ).exclude(role=User.Roles.WORKER, password__startswith="!").count()
             pending_invites_count = pending_invites_qs.count()
 
             recent_workers = workers_qs.order_by("-date_joined")[:5]
@@ -70,7 +76,10 @@ class CompanyStatsView(APIView):
                 "recent_invitations": InvitationSerializer(recent_invitations, many=True).data,
             }
         else:
-            colleagues_count = User.objects.filter(company=company, is_active=True).count()
+            colleagues_count = User.objects.filter(
+                company=company,
+                is_active=True,
+            ).exclude(role=User.Roles.WORKER, password__startswith="!").count()
             data = {
                 "is_admin": False,
                 "company": CompanySerializer(company).data,
@@ -88,13 +97,13 @@ class CompanyWorkersListView(generics.ListAPIView):
     """
 
     serializer_class = WorkerSerializer
-    permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
+    permission_classes = [permissions.IsAuthenticated, IsCompanyMember]
 
     def get_queryset(self):
         return User.objects.filter(
             company=self.request.user.company,
             role=User.Roles.WORKER,
-        ).order_by("-date_joined")
+        ).exclude(password__startswith="!").order_by("-date_joined")
 
 
 class CompanyWorkerDeleteView(generics.DestroyAPIView):
@@ -112,3 +121,17 @@ class CompanyWorkerDeleteView(generics.DestroyAPIView):
 
     def perform_destroy(self, instance: User):
         instance.delete()
+
+
+class CompanyWorkerStatusView(generics.UpdateAPIView):
+    """Allow company owners to activate or deactivate an accepted worker."""
+
+    serializer_class = WorkerStatusSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
+    http_method_names = ["patch", "options"]
+
+    def get_queryset(self):
+        return User.objects.filter(
+            company=self.request.user.company,
+            role=User.Roles.WORKER,
+        ).exclude(password__startswith="!")

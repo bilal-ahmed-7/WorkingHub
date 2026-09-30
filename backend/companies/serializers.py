@@ -35,3 +35,9 @@ class WorkerSerializer(serializers.ModelSerializer):
             "date_joined",
         ]
         read_only_fields = ["id", "email", "role", "date_joined"]
+
+
+class WorkerStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["is_active"]

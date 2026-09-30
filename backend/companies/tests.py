@@ -82,12 +82,53 @@ class CompaniesApiTests(APITestCase):
         self.assertIn("peter@stark.com", emails)
         self.assertNotIn("bruce@wayne.com", emails)
 
+    def test_worker_can_list_members_of_own_company(self):
+        self.client.force_authenticate(user=self.worker)
+
+        response = self.client.get(self.workers_list_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = [member["email"] for member in response.data]
+        self.assertIn("peter@stark.com", emails)
+        self.assertNotIn("bruce@wayne.com", emails)
+
+    def test_owner_list_hides_unaccepted_placeholder_users(self):
+        User.objects.create_user(
+            email="pending@stark.com",
+            role=User.Roles.WORKER,
+            company=self.company,
+        )
+        self.client.force_authenticate(user=self.owner)
+
+        resp = self.client.get(self.workers_list_url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        emails = [worker["email"] for worker in resp.data]
+        self.assertNotIn("pending@stark.com", emails)
+
     def test_owner_delete_worker(self):
         self.client.force_authenticate(user=self.owner)
         delete_url = reverse("company_worker_delete", kwargs={"pk": self.worker.pk})
         resp = self.client.delete(delete_url)
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(User.objects.filter(email="peter@stark.com").exists())
+
+    def test_owner_can_deactivate_worker_without_removing_member(self):
+        self.client.force_authenticate(user=self.owner)
+        status_url = reverse("company_worker_status", kwargs={"pk": self.worker.pk})
+
+        resp = self.client.patch(status_url, {"is_active": False}, format="json")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp.data["is_active"])
+        self.worker.refresh_from_db()
+        self.assertFalse(self.worker.is_active)
+        self.assertTrue(User.objects.filter(pk=self.worker.pk).exists())
+
+        members_response = self.client.get(self.workers_list_url)
+        self.assertEqual(members_response.status_code, status.HTTP_200_OK)
+        worker_data = next(member for member in members_response.data if member["id"] == self.worker.pk)
+        self.assertFalse(worker_data["is_active"])
 
     def test_cannot_delete_other_company_worker(self):
         self.client.force_authenticate(user=self.owner)

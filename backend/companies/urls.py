@@ -9,5 +9,6 @@ urlpatterns = [
     path("dashboard-stats/", views.CompanyStatsView.as_view(), name="company_dashboard_stats"),
     # Worker Management
     path("workers/", views.CompanyWorkersListView.as_view(), name="company_workers_list"),
+    path("workers/<int:pk>/status/", views.CompanyWorkerStatusView.as_view(), name="company_worker_status"),
     path("workers/<int:pk>/", views.CompanyWorkerDeleteView.as_view(), name="company_worker_delete"),
 ]
