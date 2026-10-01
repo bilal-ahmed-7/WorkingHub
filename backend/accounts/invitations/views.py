@@ -12,6 +12,7 @@ from accounts.invitations.serializers import (
     SendInvitationSerializer,
 )
 from accounts.invitations.services import dispatch_worker_invitation
+from utils.pagination import AdminListPagination
 
 
 class SendInvitationView(APIView):
@@ -112,6 +113,7 @@ class InvitationListView(generics.ListAPIView):
 
     serializer_class = InvitationSerializer
     permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
+    pagination_class = AdminListPagination
 
     def get_queryset(self):
         return Invitation.objects.filter(

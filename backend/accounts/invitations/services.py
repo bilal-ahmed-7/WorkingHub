@@ -8,6 +8,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.utils import timezone
 
+from accounts.models import User
 from companies.models import Company
 from accounts.invitations.models import Invitation
 

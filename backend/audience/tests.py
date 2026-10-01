@@ -36,8 +36,8 @@ class AudienceApiTests(APITestCase):
         response = self.client.get(self.list_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data[0]["integration_name"], "Lead intake")
-        self.assertEqual(response.data[0]["data"]["Email"], "customer@northwind.test")
+        self.assertEqual(response.data["results"][0]["integration_name"], "Lead intake")
+        self.assertEqual(response.data["results"][0]["data"]["Email"], "customer@northwind.test")
         self.assertEqual(self.client.post(self.list_url, {}, format="json").status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_audience_submissions_are_isolated_by_company(self):
@@ -48,7 +48,21 @@ class AudienceApiTests(APITestCase):
         response = self.client.get(self.list_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data["count"], 1)
+
+    def test_audience_search_and_page_size_are_applied_before_pagination(self):
+        IntegrationSubmission.objects.create(
+            integration=self.integration,
+            data={"Email": "another@northwind.test", "City": "Portland"},
+        )
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(self.list_url, {"search": "Portland", "page_size": 1})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["data"]["City"], "Portland")
 
     def test_worker_cannot_read_audience_submissions(self):
         self.client.force_authenticate(user=self.worker)

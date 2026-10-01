@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -7,6 +8,7 @@ from accounts.models import User
 from companies.models import Company
 from companies.permissions import IsCompanyAdmin, IsCompanyMember
 from companies.serializers import CompanySerializer, WorkerSerializer, WorkerStatusSerializer
+from utils.pagination import AdminListPagination
 
 
 class CompanyDetailView(generics.RetrieveUpdateAPIView):
@@ -98,12 +100,23 @@ class CompanyWorkersListView(generics.ListAPIView):
 
     serializer_class = WorkerSerializer
     permission_classes = [permissions.IsAuthenticated, IsCompanyMember]
+    pagination_class = AdminListPagination
 
     def get_queryset(self):
-        return User.objects.filter(
+        queryset = User.objects.filter(
             company=self.request.user.company,
             role=User.Roles.WORKER,
         ).exclude(password__startswith="!").order_by("-date_joined")
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            name_parts = search.split()
+            queryset = queryset.filter(
+                Q(email__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | (Q(first_name__icontains=name_parts[0]) & Q(last_name__icontains=name_parts[-1]))
+            )
+        return queryset
 
 
 class CompanyWorkerDeleteView(generics.DestroyAPIView):

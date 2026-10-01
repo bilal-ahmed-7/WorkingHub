@@ -78,7 +78,7 @@ class CompaniesApiTests(APITestCase):
         self.client.force_authenticate(user=self.owner)
         resp = self.client.get(self.workers_list_url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        emails = [w["email"] for w in resp.data]
+        emails = [w["email"] for w in resp.data["results"]]
         self.assertIn("peter@stark.com", emails)
         self.assertNotIn("bruce@wayne.com", emails)
 
@@ -88,7 +88,7 @@ class CompaniesApiTests(APITestCase):
         response = self.client.get(self.workers_list_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        emails = [member["email"] for member in response.data]
+        emails = [member["email"] for member in response.data["results"]]
         self.assertIn("peter@stark.com", emails)
         self.assertNotIn("bruce@wayne.com", emails)
 
@@ -103,8 +103,21 @@ class CompaniesApiTests(APITestCase):
         resp = self.client.get(self.workers_list_url)
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        emails = [worker["email"] for worker in resp.data]
+        emails = [worker["email"] for worker in resp.data["results"]]
         self.assertNotIn("pending@stark.com", emails)
+
+    def test_workers_page_size_and_search_are_applied(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(
+            self.workers_list_url,
+            {"search": "peter", "page_size": 1},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["email"], "peter@stark.com")
 
     def test_owner_delete_worker(self):
         self.client.force_authenticate(user=self.owner)
@@ -127,7 +140,7 @@ class CompaniesApiTests(APITestCase):
 
         members_response = self.client.get(self.workers_list_url)
         self.assertEqual(members_response.status_code, status.HTTP_200_OK)
-        worker_data = next(member for member in members_response.data if member["id"] == self.worker.pk)
+        worker_data = next(member for member in members_response.data["results"] if member["id"] == self.worker.pk)
         self.assertFalse(worker_data["is_active"])
 
     def test_cannot_delete_other_company_worker(self):

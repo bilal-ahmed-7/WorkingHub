@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from companies.permissions import IsCompanyAdmin
 from integrations.models import Integration, IntegrationSubmission, IntegrationSubmissionLog
 from integrations.serializers import IntegrationSerializer, IntegrationSubmissionLogSerializer
+from utils.pagination import AdminListPagination
 
 
 def get_identity_key(data):
@@ -63,6 +64,7 @@ def find_existing_submission(integration, identity_key):
 class IntegrationListCreateView(generics.ListCreateAPIView):
     serializer_class = IntegrationSerializer
     permission_classes = [permissions.IsAuthenticated, IsCompanyAdmin]
+    pagination_class = AdminListPagination
 
     def get_queryset(self):
         return Integration.objects.filter(company=self.request.user.company).prefetch_related("fields")
@@ -171,11 +173,16 @@ class IntegrationSubmissionLogView(APIView):
             company=request.user.company,
         )
         logs = integration.submission_logs.all()
-        return Response({
+        paginator = AdminListPagination()
+        page = paginator.paginate_queryset(logs, request, view=self)
+        response = paginator.get_paginated_response(
+            IntegrationSubmissionLogSerializer(page, many=True).data,
+        )
+        response.data.update({
             "integration": integration.name,
             "form_id": integration.id,
             "form_token": integration.public_id,
             "total_success": logs.filter(status=IntegrationSubmissionLog.Status.SUCCESS).count(),
             "total_errors": logs.filter(status=IntegrationSubmissionLog.Status.ERROR).count(),
-            "logs": IntegrationSubmissionLogSerializer(logs, many=True).data,
         })
+        return response

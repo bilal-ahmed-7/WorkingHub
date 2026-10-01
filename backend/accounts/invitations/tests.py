@@ -67,7 +67,23 @@ class InvitationsApiTests(APITestCase):
         response = self.client.get(self.list_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([item["email"] for item in response.data], ["pending@cyberdyne.com"])
+        self.assertEqual([item["email"] for item in response.data["results"]], ["pending@cyberdyne.com"])
+
+    def test_invitation_list_supports_dynamic_page_size(self):
+        for index in range(2):
+            Invitation.objects.create(
+                email=f"pending{index}@cyberdyne.com",
+                company=self.company,
+                token=f"pending-token-{index}",
+                expires_at=timezone.now() + timedelta(hours=24),
+            )
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(self.list_url, {"page_size": 1})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(len(response.data["results"]), 1)
 
     def test_validate_invitation_token(self):
         invitation = Invitation.objects.create(

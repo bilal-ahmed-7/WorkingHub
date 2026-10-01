@@ -50,7 +50,7 @@ class IntegrationApiTests(APITestCase):
         )
 
         detail_url = reverse("integration_detail", kwargs={"pk": create_response.data["id"]})
-        self.assertEqual(self.client.get(self.list_url).data[0]["name"], "Lead intake")
+        self.assertEqual(self.client.get(self.list_url).data["results"][0]["name"], "Lead intake")
 
         update_response = self.client.patch(
             detail_url,
@@ -84,6 +84,14 @@ class IntegrationApiTests(APITestCase):
         logs_response = self.client.get(reverse("integration_logs", kwargs={"pk": update_response.data["id"]}))
         self.assertEqual(logs_response.data["total_success"], 2)
         self.assertEqual(logs_response.data["total_errors"], 0)
+        self.assertEqual(logs_response.data["count"], 2)
+        self.assertEqual(len(logs_response.data["results"]), 2)
+        one_log_response = self.client.get(
+            reverse("integration_logs", kwargs={"pk": update_response.data["id"]}),
+            {"page_size": 1},
+        )
+        self.assertEqual(one_log_response.data["count"], 2)
+        self.assertEqual(len(one_log_response.data["results"]), 1)
 
         delete_response = self.client.delete(detail_url)
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
@@ -96,7 +104,8 @@ class IntegrationApiTests(APITestCase):
         response = self.client.get(self.list_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, [])
+        self.assertEqual(response.data["results"], [])
+        self.assertEqual(response.data["count"], 0)
 
     def test_worker_cannot_manage_integrations(self):
         self.client.force_authenticate(user=self.worker)
