@@ -56,14 +56,14 @@ class User(AbstractUser):
 
     class Roles(models.TextChoices):
         ADMIN = "ADMIN", _("Company Owner")
-        WORKER = "WORKER", _("Worker")
+        MEMBER = "MEMBER", _("Member")
 
     username = None  # Remove username field
     email = models.EmailField(_("Email Address"), unique=True)
     role = models.CharField(
-        max_length=10,
+        max_length=16,
         choices=Roles.choices,
-        default=Roles.WORKER,
+        default=Roles.MEMBER,
         verbose_name=_("Role"),
     )
     company = models.ForeignKey(

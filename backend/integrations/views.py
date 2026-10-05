@@ -4,7 +4,9 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 
 from companies.permissions import IsCompanyAdmin
+from audience.services import sync_audience_record
 from integrations.models import Integration, IntegrationSubmission, IntegrationSubmissionLog
+from integrations.field_registry import submission_key
 from integrations.serializers import IntegrationSerializer, IntegrationSubmissionLogSerializer
 from utils.pagination import AdminListPagination
 
@@ -106,16 +108,17 @@ class PublicIntegrationSubmissionView(APIView):
             return Response({"detail": "Form data must be an object."}, status=status.HTTP_400_BAD_REQUEST)
 
         errors = {}
-        fields_by_name = {field.name: field for field in integration.fields.all()}
+        fields_by_name = {submission_key(field): field for field in integration.fields.all()}
         for field in integration.fields.all():
-            value = data.get(field.name)
+            key = submission_key(field)
+            value = data.get(key)
             if field.required and (value is None or value == "" or value == []):
-                errors[field.name] = "This field is required."
+                errors[key] = "This field is required."
             if field.field_type in {"select", "multi_select"} and value:
                 values = value if field.field_type == "multi_select" else [value]
                 invalid = [item for item in values if item not in field.options]
                 if invalid:
-                    errors[field.name] = "Select a valid option."
+                    errors[key] = "Select a valid option."
 
         unknown_fields = set(data) - set(fields_by_name)
         if unknown_fields:
@@ -135,7 +138,7 @@ class PublicIntegrationSubmissionView(APIView):
             )
             return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
-        clean_data = {field.name: data.get(field.name) for field in integration.fields.all()}
+        clean_data = {submission_key(field): data.get(submission_key(field)) for field in integration.fields.all()}
         submission = find_existing_submission(integration, identity_key)
         if submission:
             submission.data = clean_data
@@ -146,6 +149,7 @@ class PublicIntegrationSubmissionView(APIView):
                 data=clean_data,
                 identity_key=identity_key,
             )
+        sync_audience_record(integration, clean_data)
         IntegrationSubmissionLog.objects.create(
             integration=integration,
             data=clean_data,

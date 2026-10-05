@@ -11,7 +11,7 @@ class Invitation(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(verbose_name=_("Worker Email"))
+    email = models.EmailField(verbose_name=_("Member Email"))
     company = models.ForeignKey(
         "companies.Company",
         on_delete=models.CASCADE,

@@ -109,7 +109,7 @@ class InvitationsApiTests(APITestCase):
         )
         User.objects.create_user(
             email="newjoiner@cyberdyne.com",
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
             company=self.company,
         )
 

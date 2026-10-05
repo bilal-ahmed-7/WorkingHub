@@ -48,7 +48,7 @@ class CompanyStatsView(APIView):
         if user.is_company_admin:
             workers_qs = User.objects.filter(
                 company=company,
-                role=User.Roles.WORKER,
+                role=User.Roles.MEMBER,
             ).exclude(password__startswith="!")
             pending_invites_qs = Invitation.objects.filter(
                 company=company,
@@ -60,7 +60,7 @@ class CompanyStatsView(APIView):
             active_users = User.objects.filter(
                 company=company,
                 is_active=True,
-            ).exclude(role=User.Roles.WORKER, password__startswith="!").count()
+            ).exclude(role=User.Roles.MEMBER, password__startswith="!").count()
             pending_invites_count = pending_invites_qs.count()
 
             recent_workers = workers_qs.order_by("-date_joined")[:5]
@@ -81,7 +81,7 @@ class CompanyStatsView(APIView):
             colleagues_count = User.objects.filter(
                 company=company,
                 is_active=True,
-            ).exclude(role=User.Roles.WORKER, password__startswith="!").count()
+            ).exclude(role=User.Roles.MEMBER, password__startswith="!").count()
             data = {
                 "is_admin": False,
                 "company": CompanySerializer(company).data,
@@ -105,7 +105,7 @@ class CompanyWorkersListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = User.objects.filter(
             company=self.request.user.company,
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
         ).exclude(password__startswith="!").order_by("-date_joined")
         search = self.request.query_params.get("search", "").strip()
         if search:
@@ -129,7 +129,7 @@ class CompanyWorkerDeleteView(generics.DestroyAPIView):
     def get_queryset(self):
         return User.objects.filter(
             company=self.request.user.company,
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
         )
 
     def perform_destroy(self, instance: User):
@@ -146,5 +146,5 @@ class CompanyWorkerStatusView(generics.UpdateAPIView):
     def get_queryset(self):
         return User.objects.filter(
             company=self.request.user.company,
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
         ).exclude(password__startswith="!")

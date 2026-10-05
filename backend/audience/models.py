@@ -1,6 +1,7 @@
 from django.db import models
 
 from companies.models import Company
+from integrations.models import Integration
 
 
 class Audience(models.Model):
@@ -9,13 +10,14 @@ class Audience(models.Model):
         on_delete=models.CASCADE,
         related_name="audience",
     )
-    name= models.CharField(max_length=255)
-    mobile = models.CharField(max_length=32, unique=True)
-    email = models.EmailField(unique=True)
-    zipcode = models.CharField(max_length=20)
-    city = models.CharField(max_length=120)
-    street = models.CharField(max_length=255)
-    state = models.CharField(max_length=120)
+    integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, null=True, blank=True, related_name="audience_records")
+    name = models.CharField(max_length=255, blank=True)
+    mobile = models.CharField(max_length=32, blank=True)
+    email = models.EmailField(blank=True)
+    zipcode = models.CharField(max_length=20, blank=True)
+    city = models.CharField(max_length=120, blank=True)
+    street = models.CharField(max_length=255, blank=True)
+    state = models.CharField(max_length=120, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

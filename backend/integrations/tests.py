@@ -20,14 +20,18 @@ class IntegrationApiTests(APITestCase):
         self.worker = User.objects.create_user(
             email="worker@northwind.test",
             password="Password123!",
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
             company=self.company,
         )
         self.list_url = reverse("integration_list_create")
         self.payload = {
             "name": "Lead intake",
             "fields": [
-                {"name": "Full name", "field_type": "text", "required": True},
+                {
+                    "name": "Full name",
+                    "field_type": "text",
+                    "required": True,
+                },
                 {"name": "Budget", "field_type": "number"},
                 {
                     "name": "Region",
@@ -48,13 +52,23 @@ class IntegrationApiTests(APITestCase):
                 f"/integrations/public/{create_response.data['public_id']}"
             )
         )
+        public_before_update = self.client.get(
+            reverse(
+                "integration_public_form",
+                kwargs={"public_id": create_response.data["public_id"]},
+            )
+        )
+        self.assertEqual(len(public_before_update.data["fields"]), 3)
 
         detail_url = reverse("integration_detail", kwargs={"pk": create_response.data["id"]})
         self.assertEqual(self.client.get(self.list_url).data["results"][0]["name"], "Lead intake")
 
         update_response = self.client.patch(
             detail_url,
-            {"name": "Updated lead intake", "fields": [{"name": "Email", "field_type": "email"}]},
+            {
+                "name": "Updated lead intake",
+                "fields": [{"name": "Email", "field_type": "email"}],
+            },
             format="json",
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
@@ -149,6 +163,42 @@ class IntegrationApiTests(APITestCase):
         self.assertIn("Email", response.data)
         self.assertEqual(IntegrationSubmissionLog.objects.get().status, "error")
         self.assertIn("required", IntegrationSubmissionLog.objects.get().error_message)
+
+    def test_address_autocomplete_creates_system_fields_and_uses_stable_submission_keys(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(self.list_url, {
+            "name": "Address intake",
+            "fields": [{"name": "Home address", "field_type": "address_autocomplete"}],
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            [field["system_key"] for field in response.data["fields"]],
+            ["address_main", "address_street", "address_city", "address_zipcode"],
+        )
+        self.assertTrue(response.data["fields"][0]["required"])
+        self.assertTrue(response.data["fields"][1]["config"]["is_read_only"])
+
+        submit_url = reverse("integration_public_submit", kwargs={"public_id": response.data["public_id"]})
+        payload = {
+            "address_main": "123 Main St, Seattle, WA 98101",
+            "address_street": "123 Main St",
+            "address_city": "Seattle",
+            "address_zipcode": "98101",
+        }
+        self.assertEqual(self.client.post(submit_url, payload, format="json").status_code, status.HTTP_201_CREATED)
+        self.assertEqual(IntegrationSubmission.objects.get().data, payload)
+
+    def test_address_autocomplete_rejects_conflicting_manual_children(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(self.list_url, {
+            "name": "Invalid address intake",
+            "fields": [
+                {"name": "Address", "field_type": "address_autocomplete"},
+                {"name": "City", "field_type": "text"},
+            ],
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_same_email_updates_existing_record_even_when_phone_changes(self):
         integration = Integration.objects.create(company=self.company, name="Basic data form")

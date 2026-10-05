@@ -23,7 +23,7 @@ class CompaniesApiTests(APITestCase):
         self.worker = User.objects.create_user(
             email="peter@stark.com",
             password="Password123!",
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
             company=self.company,
             first_name="Peter",
             last_name="Parker",
@@ -32,7 +32,7 @@ class CompaniesApiTests(APITestCase):
         self.other_worker = User.objects.create_user(
             email="bruce@wayne.com",
             password="Password123!",
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
             company=self.other_company,
             first_name="Bruce",
             last_name="Wayne",
@@ -95,7 +95,7 @@ class CompaniesApiTests(APITestCase):
     def test_owner_list_hides_unaccepted_placeholder_users(self):
         User.objects.create_user(
             email="pending@stark.com",
-            role=User.Roles.WORKER,
+            role=User.Roles.MEMBER,
             company=self.company,
         )
         self.client.force_authenticate(user=self.owner)

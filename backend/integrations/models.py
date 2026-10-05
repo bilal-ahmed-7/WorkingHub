@@ -41,6 +41,14 @@ class IntegrationField(models.Model):
         SELECT = "select", _("Select")
         MULTI_SELECT = "multi_select", _("Multiple select")
         CHECKBOX = "checkbox", _("Checkbox")
+        ADDRESS_AUTOCOMPLETE = "address_autocomplete", _("Address autocomplete")
+
+    class SystemKeys(models.TextChoices):
+        CUSTOM = "custom", _("Custom field")
+        ADDRESS_MAIN = "address_main", _("Main address")
+        ADDRESS_STREET = "address_street", _("Street")
+        ADDRESS_CITY = "address_city", _("City")
+        ADDRESS_ZIPCODE = "address_zipcode", _("ZIP code")
 
     integration = models.ForeignKey(
         Integration,
@@ -49,6 +57,12 @@ class IntegrationField(models.Model):
     )
     name = models.CharField(max_length=120)
     field_type = models.CharField(max_length=20, choices=FieldTypes.choices)
+    system_key = models.CharField(
+        max_length=50,
+        choices=SystemKeys.choices,
+        default=SystemKeys.CUSTOM,
+    )
+    config = models.JSONField(default=dict, blank=True)
     required = models.BooleanField(default=False)
     options = models.JSONField(default=list, blank=True)
     position = models.PositiveIntegerField(default=0)

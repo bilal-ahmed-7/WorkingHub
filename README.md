@@ -73,6 +73,12 @@ UI runs on → **http://localhost:5173**
 | `POST` | `/api/invitations/accept/` | Accept invite & set password |
 | `DELETE` | `/api/invitations/revoke/<token>/` | Revoke pending invite |
 
+### Admin list pagination
+
+Team workers, audience submissions, integrations, pending invitations, and integration logs use page-number pagination. List responses contain `count`, `next`, `previous`, and `results`. Use `page` to select a page and `page_size` to choose the number of records (default: 10; maximum: 1,000). The audience and worker lists also accept a `search` query parameter, which is applied before pagination.
+
+For example: `/api/companies/workers/?page=2&page_size=25`
+
 ---
 
 ## ⚙️ JWT Token Lifetimes (configurable via `.env`)

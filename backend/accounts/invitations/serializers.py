@@ -35,7 +35,7 @@ class InvitationSerializer(serializers.ModelSerializer):
             "created_at",
             "expires_at",
         ]
-        read_only_fields = fields
+        read_only_fields = fields #for display purposes, all fields are read-only
 
     def get_is_valid(self, obj: Invitation) -> bool:
         return obj.is_valid()
@@ -123,13 +123,13 @@ class AcceptInvitationSerializer(serializers.Serializer):
                     password=new_password,
                     first_name=first_name,
                     last_name=last_name,
-                    role=User.Roles.WORKER,
+                    role=User.Roles.MEMBER,
                     company=invitation.company,
                 )
             else:
                 user.first_name = first_name
                 user.last_name = last_name
-                user.role = User.Roles.WORKER
+                user.role = User.Roles.MEMBER
                 user.company = invitation.company
                 user.set_password(new_password)
                 user.save()
