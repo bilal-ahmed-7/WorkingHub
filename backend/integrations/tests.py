@@ -3,6 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
+from audience.models import Audience
 from companies.models import Company
 from integrations.models import Integration, IntegrationSubmission, IntegrationSubmissionLog
 
@@ -90,8 +91,12 @@ class IntegrationApiTests(APITestCase):
         self.assertEqual(IntegrationSubmission.objects.count(), 1)
         second_submit = self.client.post(submit_url, {"Email": "lead@northwind.test"}, format="json")
         self.assertEqual(second_submit.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(IntegrationSubmission.objects.count(), 1)
-        self.assertEqual(IntegrationSubmission.objects.get().data["Email"], "lead@northwind.test")
+        self.assertNotEqual(submit_response.data["submission_id"], second_submit.data["submission_id"])
+        self.assertEqual(IntegrationSubmission.objects.count(), 2)
+        self.assertEqual(
+            IntegrationSubmission.objects.order_by("-id").first().data["Email"],
+            "lead@northwind.test",
+        )
         self.assertEqual(IntegrationSubmissionLog.objects.filter(status="success").count(), 2)
 
         self.client.force_authenticate(user=self.owner)
@@ -189,6 +194,26 @@ class IntegrationApiTests(APITestCase):
         self.assertEqual(self.client.post(submit_url, payload, format="json").status_code, status.HTTP_201_CREATED)
         self.assertEqual(IntegrationSubmission.objects.get().data, payload)
 
+    def test_public_address_only_form_returns_one_visible_field(self):
+        self.client.force_authenticate(user=self.owner)
+        created = self.client.post(self.list_url, {
+            "name": "Address only",
+            "fields": [{"name": "Address", "field_type": "address_autocomplete"}],
+        }, format="json")
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(created.data["fields"]), 4)
+
+        public_form = self.client.get(reverse(
+            "integration_public_form",
+            kwargs={"public_id": created.data["public_id"]},
+        ))
+
+        self.assertEqual(public_form.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [field["system_key"] for field in public_form.data["fields"]],
+            ["address_main"],
+        )
+
     def test_address_autocomplete_rejects_conflicting_manual_children(self):
         self.client.force_authenticate(user=self.owner)
         response = self.client.post(self.list_url, {
@@ -200,7 +225,24 @@ class IntegrationApiTests(APITestCase):
         }, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_same_email_updates_existing_record_even_when_phone_changes(self):
+    def test_public_form_hides_system_address_children(self):
+        integration = Integration.objects.create(company=self.company, name="Address intake")
+        integration.fields.create(name="Mobile", field_type="text", required=True, system_key="custom")
+        integration.fields.create(name="Email", field_type="email", required=True, system_key="custom")
+        integration.fields.create(name="State", field_type="text", required=False, system_key="custom")
+        parent = integration.fields.create(name="Address", field_type="address_autocomplete", required=True, system_key="address_main")
+        integration.fields.create(name="Street", field_type="text", system_key="address_street", config={"is_read_only": True})
+        integration.fields.create(name="City", field_type="text", system_key="address_city", config={"is_read_only": True})
+        integration.fields.create(name="ZIP Code", field_type="text", system_key="address_zipcode", config={"is_read_only": True})
+
+        response = self.client.get(reverse("integration_public_form", kwargs={"public_id": integration.public_id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["fields"]), 4)
+        self.assertEqual([field["system_key"] for field in response.data["fields"]], ["custom", "custom", "custom", "address_main"])
+        self.assertNotIn("address_street", [field["system_key"] for field in response.data["fields"]])
+
+    def test_same_email_with_different_phone_creates_separate_submission(self):
         integration = Integration.objects.create(company=self.company, name="Basic data form")
         integration.fields.create(name="Enter your phone number", field_type="text")
         integration.fields.create(name="Select your email", field_type="email", required=True)
@@ -219,8 +261,75 @@ class IntegrationApiTests(APITestCase):
 
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
         self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(IntegrationSubmission.objects.filter(integration=integration).count(), 2)
+
+    def test_same_phone_updates_earliest_submission(self):
+        integration = Integration.objects.create(company=self.company, name="Phone identity form")
+        integration.fields.create(name="Mobile", field_type="text")
+        integration.fields.create(name="Email", field_type="email")
+        first = IntegrationSubmission.objects.create(
+            integration=integration,
+            data={"Mobile": "+1 (555) 123-4567", "Email": "old@example.com"},
+            identity_key="email:old@example.com",
+        )
+        later = IntegrationSubmission.objects.create(
+            integration=integration,
+            data={"Mobile": "15551234567", "Email": "duplicate@example.com"},
+            identity_key="email:duplicate@example.com",
+        )
+        submit_url = reverse("integration_public_submit", kwargs={"public_id": integration.public_id})
+
+        response = self.client.post(
+            submit_url,
+            {"Mobile": "1-555-123-4567", "Email": "new@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["submission_id"], first.id)
+        self.assertEqual(IntegrationSubmission.objects.filter(integration=integration).count(), 2)
+        first.refresh_from_db()
+        later.refresh_from_db()
+        self.assertEqual(first.data["Email"], "new@example.com")
+        self.assertEqual(first.identity_key, "phone:15551234567")
+        self.assertEqual(later.data["Email"], "duplicate@example.com")
+
+    def test_resubmission_updates_earliest_audience_by_phone(self):
+        integration = Integration.objects.create(company=self.company, name="Audience phone identity")
+        integration.fields.create(name="Phone number", field_type="text")
+        integration.fields.create(name="Email", field_type="email")
+        first_audience = Audience.objects.create(
+            company=self.company,
+            integration=integration,
+            mobile="+1 (555) 777-1234",
+            email="first@example.com",
+        )
+        later_audience = Audience.objects.create(
+            company=self.company,
+            integration=integration,
+            mobile="15557771234",
+            email="duplicate@example.com",
+        )
+        first = self.client.post(
+            reverse("integration_public_submit", kwargs={"public_id": integration.public_id}),
+            {"Phone number": "1-555-777-1234", "Email": "first@example.com"},
+            format="json",
+        )
+        original = IntegrationSubmission.objects.get(pk=first.data["submission_id"])
+
+        second = self.client.post(
+            reverse("integration_public_submit", kwargs={"public_id": integration.public_id}),
+            {"Phone number": "+1 (555) 777-1234", "Email": "updated@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.data["submission_id"], original.id)
         self.assertEqual(IntegrationSubmission.objects.filter(integration=integration).count(), 1)
         self.assertEqual(
-            IntegrationSubmission.objects.get(integration=integration).data["Enter your phone number"],
-            "456",
+            Audience.objects.filter(company=self.company, integration=integration).count(),
+            1,
         )
+        first_audience.refresh_from_db()
+        self.assertEqual(first_audience.email, "updated@example.com")
+        self.assertFalse(Audience.objects.filter(pk=later_audience.pk).exists())

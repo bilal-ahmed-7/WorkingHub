@@ -38,6 +38,53 @@ class AudienceApiTests(APITestCase):
         self.assertEqual(self.client.patch(detail_url, {"city": "Seattle"}, format="json").status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.delete(detail_url).status_code, status.HTTP_204_NO_CONTENT)
 
+    def test_editing_duplicate_phone_keeps_oldest_record_and_deletes_later_duplicates(self):
+        first = Audience.objects.create(
+            company=self.company,
+            integration=self.integration,
+            name="Oldest",
+            mobile="123456789",
+            email="oldest@example.com",
+        )
+        second = Audience.objects.create(
+            company=self.company,
+            integration=self.integration,
+            name="Second",
+            mobile="123-456-789",
+            email="second@example.com",
+        )
+        third = Audience.objects.create(
+            company=self.company,
+            integration=self.integration,
+            name="Third",
+            mobile="(123) 456-789",
+            email="third@example.com",
+        )
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            reverse("audience_detail", kwargs={"pk": third.pk}),
+            {"name": "Updated contact", "mobile": "123456789", "email": "updated@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], first.id)
+        self.assertEqual(
+            list(
+                Audience.objects.filter(
+                    company=self.company,
+                    integration=self.integration,
+                    mobile__in=["123456789", "123-456-789", "(123) 456-789"],
+                ).values_list("id", flat=True)
+            ),
+            [first.id],
+        )
+        first.refresh_from_db()
+        self.assertEqual(first.name, "Updated contact")
+        self.assertEqual(first.email, "updated@example.com")
+        self.assertFalse(Audience.objects.filter(id__in=[second.id, third.id]).exists())
+
     def test_sync_audience_record_creates_separate_record_per_submission(self):
         second_integration = Integration.objects.create(company=self.company, name="Partner form")
         first_record = Audience.objects.create(

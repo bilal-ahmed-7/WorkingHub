@@ -4,32 +4,16 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 
 from companies.permissions import IsCompanyAdmin
-from audience.services import sync_audience_record
-from integrations.models import Integration, IntegrationSubmission, IntegrationSubmissionLog
+from audience.services import audience_values, phone_identity, sync_audience_record
+from integrations.models import Integration, IntegrationField, IntegrationSubmission, IntegrationSubmissionLog
 from integrations.field_registry import submission_key
 from integrations.serializers import IntegrationSerializer, IntegrationSubmissionLogSerializer
 from utils.pagination import AdminListPagination
 
 
 def get_identity_key(data):
-    normalized_keys = [(key, key.strip().lower()) for key in data]
-    candidates = [key for key, normalized in normalized_keys if "email" in normalized]
-    candidates += [
-        key for key, normalized in normalized_keys
-        if any(token in normalized for token in ("phone", "mobile"))
-    ]
-    candidates += [
-        key for key, normalized in normalized_keys
-        if normalized in {"id", "number", "user id", "customer id"}
-        or normalized.endswith(" id")
-        or normalized.endswith(" number")
-    ]
-    for key in candidates:
-        value = data.get(key)
-        if value not in (None, "", []):
-            normalized = ",".join(map(str, value)) if isinstance(value, list) else str(value)
-            return f"{key.strip().lower()}:{normalized.strip().lower()}"
-    return ""
+    phone = phone_identity(audience_values(data)["mobile"])
+    return f"phone:{phone}" if phone else ""
 
 
 def get_request_meta(request):
@@ -49,7 +33,7 @@ def find_existing_submission(integration, identity_key):
     if not identity_key:
         return None
 
-    candidates = list(integration.submissions.all())
+    candidates = list(integration.submissions.order_by("id"))
     matches = [
         submission for submission in candidates
         if submission.identity_key == identity_key or get_identity_key(submission.data) == identity_key
@@ -57,10 +41,7 @@ def find_existing_submission(integration, identity_key):
     if not matches:
         return None
 
-    submission = matches[0]
-    for duplicate in matches[1:]:
-        duplicate.delete()
-    return submission
+    return matches[0]
 
 
 class IntegrationListCreateView(generics.ListCreateAPIView):
@@ -83,8 +64,22 @@ class IntegrationDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Integration.objects.filter(company=self.request.user.company).prefetch_related("fields")
 
 
+class PublicIntegrationFormSerializer(IntegrationSerializer):
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["fields"] = [
+            field for field in representation["fields"]
+            if field.get("system_key") in {
+                IntegrationField.SystemKeys.CUSTOM,
+                IntegrationField.SystemKeys.ADDRESS_MAIN,
+            }
+            and not field.get("config", {}).get("auto_filled_by")
+        ]
+        return representation
+
+
 class PublicIntegrationFormView(generics.RetrieveAPIView):
-    serializer_class = IntegrationSerializer
+    serializer_class = PublicIntegrationFormSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = "public_id"
     lookup_url_kwarg = "public_id"
@@ -142,6 +137,7 @@ class PublicIntegrationSubmissionView(APIView):
         submission = find_existing_submission(integration, identity_key)
         if submission:
             submission.data = clean_data
+            submission.identity_key = identity_key
             submission.save()
         else:
             submission = IntegrationSubmission.objects.create(

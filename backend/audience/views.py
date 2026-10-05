@@ -3,6 +3,7 @@ from rest_framework import generics, permissions
 
 from audience.models import Audience
 from audience.serializers import AudienceSerializer
+from audience.services import consolidate_audience_phone
 from companies.permissions import IsCompanyAdmin
 from utils.pagination import AdminListPagination
 
@@ -33,3 +34,7 @@ class AudienceDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Audience.objects.filter(company=self.request.user.company).select_related("integration")
+
+    def perform_update(self, serializer):
+        record = serializer.save()
+        serializer.instance = consolidate_audience_phone(record)
