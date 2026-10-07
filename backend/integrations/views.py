@@ -4,9 +4,18 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 
 from companies.permissions import IsCompanyAdmin
-from audience.services import audience_values, phone_identity, sync_audience_record
+from audience.services import (
+    DuplicateAudiencePhone,
+    audience_values,
+    phone_identity,
+    sync_audience_record,
+)
 from integrations.models import Integration, IntegrationField, IntegrationSubmission, IntegrationSubmissionLog
-from integrations.field_registry import submission_key
+from integrations.field_registry import (
+    IDENTIFIER_FIELDS,
+    identifier_field_for_name,
+    submission_key,
+)
 from integrations.serializers import IntegrationSerializer, IntegrationSubmissionLogSerializer
 from utils.pagination import AdminListPagination
 
@@ -71,6 +80,8 @@ class PublicIntegrationFormSerializer(IntegrationSerializer):
             field for field in representation["fields"]
             if field.get("system_key") in {
                 IntegrationField.SystemKeys.CUSTOM,
+                IntegrationField.SystemKeys.EMAIL,
+                IntegrationField.SystemKeys.PHONE,
                 IntegrationField.SystemKeys.ADDRESS_MAIN,
             }
             and not field.get("config", {}).get("auto_filled_by")
@@ -103,19 +114,52 @@ class PublicIntegrationSubmissionView(APIView):
             return Response({"detail": "Form data must be an object."}, status=status.HTTP_400_BAD_REQUEST)
 
         errors = {}
-        fields_by_name = {submission_key(field): field for field in integration.fields.all()}
-        for field in integration.fields.all():
+        integration_fields = list(integration.fields.all())
+        fields_by_name = {submission_key(field): field for field in integration_fields}
+        has_address_field = any(
+            field.system_key == IntegrationField.SystemKeys.ADDRESS_MAIN
+            for field in integration_fields
+        )
+        supports_legacy_address_state = (
+            has_address_field
+            and IntegrationField.SystemKeys.ADDRESS_STATE not in {
+                field.system_key for field in integration_fields
+            }
+        )
+        matched_identifiers = set()
+        for field in integration_fields:
             key = submission_key(field)
             value = data.get(key)
-            if field.required and (value is None or value == "" or value == []):
-                errors[key] = "This field is required."
+            identifier = next(
+                (
+                    definition for definition in IDENTIFIER_FIELDS
+                    if definition["system_key"] == field.system_key
+                ),
+                None,
+            ) or identifier_field_for_name(field.name)
+            if identifier:
+                matched_identifiers.add(identifier["system_key"])
+            if (
+                (field.required or identifier)
+                and (value is None or value == "" or value == [])
+            ):
+                errors[key] = (
+                    identifier["message"]
+                    if identifier
+                    else "This field is required."
+                )
             if field.field_type in {"select", "multi_select"} and value:
                 values = value if field.field_type == "multi_select" else [value]
                 invalid = [item for item in values if item not in field.options]
                 if invalid:
                     errors[key] = "Select a valid option."
 
-        unknown_fields = set(data) - set(fields_by_name)
+        for identifier in IDENTIFIER_FIELDS:
+            if identifier["system_key"] not in matched_identifiers:
+                errors[identifier["system_key"]] = identifier["message"]
+
+        allowed_extra_fields = {"address_state"} if supports_legacy_address_state else set()
+        unknown_fields = set(data) - set(fields_by_name) - allowed_extra_fields
         if unknown_fields:
             errors["detail"] = "The form contains an invalid field."
         identity_key = get_identity_key(data)
@@ -125,15 +169,29 @@ class PublicIntegrationSubmissionView(APIView):
                 data=data,
                 identity_key=identity_key,
                 status=IntegrationSubmissionLog.Status.ERROR,
-                error_message="; ".join(
-                    f"{key}: {value}" for key, value in errors.items()
-                ),
+                error_message="Failed to save response.",
                 request_meta=get_request_meta(request),
                 response_status=status.HTTP_400_BAD_REQUEST,
             )
             return Response(errors, status=status.HTTP_400_BAD_REQUEST)
 
         clean_data = {submission_key(field): data.get(submission_key(field)) for field in integration.fields.all()}
+        if supports_legacy_address_state and data.get("address_state") not in (None, ""):
+            clean_data["address_state"] = data["address_state"]
+        try:
+            sync_audience_record(integration, clean_data)
+        except DuplicateAudiencePhone as exc:
+            IntegrationSubmissionLog.objects.create(
+                integration=integration,
+                data=clean_data,
+                identity_key=identity_key,
+                status=IntegrationSubmissionLog.Status.ERROR,
+                error_message="Failed to save response.",
+                request_meta=get_request_meta(request),
+                response_status=status.HTTP_400_BAD_REQUEST,
+            )
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
         submission = find_existing_submission(integration, identity_key)
         if submission:
             submission.data = clean_data
@@ -145,7 +203,6 @@ class PublicIntegrationSubmissionView(APIView):
                 data=clean_data,
                 identity_key=identity_key,
             )
-        sync_audience_record(integration, clean_data)
         IntegrationSubmissionLog.objects.create(
             integration=integration,
             data=clean_data,

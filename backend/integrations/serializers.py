@@ -4,7 +4,12 @@ from django.urls import reverse
 from rest_framework import serializers
 
 from integrations.models import Integration, IntegrationField, IntegrationSubmission, IntegrationSubmissionLog
-from integrations.field_registry import COMPOSITE_FIELD_GROUPS, ADDRESS_CHILDREN
+from integrations.field_registry import (
+    ADDRESS_CHILDREN,
+    COMPOSITE_FIELD_GROUPS,
+    IDENTIFIER_FIELDS,
+    identifier_field_for_name,
+)
 
 
 class IntegrationFieldSerializer(serializers.ModelSerializer):
@@ -86,9 +91,22 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _create_fields(integration, fields_data):
-        """Create user fields and any system-owned composite children together."""
+        """Create protected identifiers, user fields, and composite children."""
         position = 0
+        for identifier in IDENTIFIER_FIELDS:
+            IntegrationField.objects.create(
+                integration=integration,
+                name=identifier["name"],
+                field_type=identifier["field_type"],
+                system_key=identifier["system_key"],
+                required=True,
+                position=position,
+            )
+            position += 1
+
         for field_data in sorted(fields_data, key=lambda field: field.get("position", 0)):
+            if identifier_field_for_name(field_data["name"]):
+                continue
             is_address = field_data["field_type"] == IntegrationField.FieldTypes.ADDRESS_AUTOCOMPLETE
             parent = IntegrationField.objects.create(
                 integration=integration,

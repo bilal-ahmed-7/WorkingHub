@@ -4,6 +4,10 @@ from companies.models import Company
 from integrations.models import Integration
 
 
+def normalise_mobile(value):
+    return "".join(character for character in value if character.isdigit())
+
+
 class Audience(models.Model):
     company = models.ForeignKey(
         Company,
@@ -12,7 +16,7 @@ class Audience(models.Model):
     )
     integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, null=True, blank=True, related_name="audience_records")
     name = models.CharField(max_length=255, blank=True)
-    mobile = models.CharField(max_length=32, blank=True)
+    mobile = models.CharField(max_length=32, unique=True)
     email = models.EmailField(blank=True)
     zipcode = models.CharField(max_length=20, blank=True)
     city = models.CharField(max_length=120, blank=True)
@@ -24,6 +28,18 @@ class Audience(models.Model):
     class Meta:
         ordering = ["city", "email"]
         verbose_name_plural = "audience"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(mobile__gt=""),
+                name="audience_mobile_not_blank",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or "mobile" in update_fields:
+            self.mobile = normalise_mobile(self.mobile)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.email} ({self.company.name})"

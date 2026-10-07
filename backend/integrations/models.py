@@ -45,10 +45,13 @@ class IntegrationField(models.Model):
 
     class SystemKeys(models.TextChoices):
         CUSTOM = "custom", _("Custom field")
+        EMAIL = "email", _("Email")
+        PHONE = "phone", _("Phone number")
         ADDRESS_MAIN = "address_main", _("Main address")
         ADDRESS_STREET = "address_street", _("Street")
         ADDRESS_CITY = "address_city", _("City")
         ADDRESS_ZIPCODE = "address_zipcode", _("ZIP code")
+        ADDRESS_STATE = "address_state", _("State")
 
     integration = models.ForeignKey(
         Integration,

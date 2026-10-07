@@ -3,10 +3,44 @@
 from integrations.models import IntegrationField
 
 
+IDENTIFIER_FIELDS = (
+    {
+        "name": "Email",
+        "field_type": IntegrationField.FieldTypes.EMAIL,
+        "system_key": IntegrationField.SystemKeys.EMAIL,
+        "aliases": {"email", "emailaddress"},
+        "message": "Please enter your email address.",
+    },
+    {
+        "name": "Phone number",
+        "field_type": IntegrationField.FieldTypes.NUMBER,
+        "system_key": IntegrationField.SystemKeys.PHONE,
+        "aliases": {"phone", "phonenumber", "mobile", "mobilenumber"},
+        "message": "Please enter your phone number.",
+    },
+)
+
+
+def normalise_field_name(value):
+    return "".join(character for character in value.lower() if character.isalnum())
+
+
+def identifier_field_for_name(name):
+    normalized_name = normalise_field_name(name)
+    return next(
+        (
+            field for field in IDENTIFIER_FIELDS
+            if any(normalized_name.endswith(alias) for alias in field["aliases"])
+        ),
+        None,
+    )
+
+
 ADDRESS_CHILDREN = (
     ("Street", IntegrationField.SystemKeys.ADDRESS_STREET),
     ("City", IntegrationField.SystemKeys.ADDRESS_CITY),
     ("ZIP Code", IntegrationField.SystemKeys.ADDRESS_ZIPCODE),
+    ("State", IntegrationField.SystemKeys.ADDRESS_STATE),
 )
 
 COMPOSITE_FIELD_GROUPS = {
