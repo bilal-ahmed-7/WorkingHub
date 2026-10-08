@@ -1,8 +1,18 @@
 """Convert flexible integration payloads into the canonical Audience schema."""
 
+import re
+
 from django.db import IntegrityError, transaction
 
 from audience.models import Audience, normalise_mobile
+
+US_PHONE_FORMAT_MESSAGE = (
+    "Enter a US phone number as (XXX) XXX-XXXX, XXX-XXX-XXXX, or +1XXXXXXXXXX."
+)
+_US_PHONE_PATTERN = re.compile(
+    r"(?:\([0-9]{3}\) [0-9]{3}-[0-9]{4}|[0-9]{3}-[0-9]{3}-[0-9]{4}|"
+    r"[0-9]{3} [0-9]{3} [0-9]{4}|\+1[0-9]{10})"
+)
 
 
 def _normalise(value):
@@ -24,6 +34,10 @@ def _value(data, *keys):
 
 def phone_identity(value):
     return normalise_mobile(value)
+
+
+def is_valid_us_phone(value):
+    return isinstance(value, str) and _US_PHONE_PATTERN.fullmatch(value.strip()) is not None
 
 
 def matching_audience_records(company, values):

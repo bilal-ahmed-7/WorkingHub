@@ -17,7 +17,7 @@ class AudienceApiTests(APITestCase):
         self.owner = User.objects.create_user(email="owner@northwind.test", password="Password123!", role=User.Roles.ADMIN, company=self.company)
         self.worker = User.objects.create_user(email="worker@northwind.test", password="Password123!", role=User.Roles.MEMBER, company=self.company)
         self.integration = Integration.objects.create(company=self.company, name="Lead intake")
-        self.record = Audience.objects.create(company=self.company, integration=self.integration, name="Taylor Smith", mobile="5551234", email="taylor@northwind.test", zipcode="98101", city="Seattle", street="123 Main St", state="WA")
+        self.record = Audience.objects.create(company=self.company, integration=self.integration, name="Taylor Smith", mobile="202-555-0123", email="taylor@northwind.test", zipcode="98101", city="Seattle", street="123 Main St", state="WA")
         self.list_url = reverse("audience_list")
 
     def test_admin_lists_standard_audience_schema(self):
@@ -45,7 +45,7 @@ class AudienceApiTests(APITestCase):
     def test_create_update_delete_and_company_isolation(self):
         Audience.objects.create(company=self.other_company, name="Other", mobile="5550003", email="other@test.com")
         self.client.force_authenticate(user=self.owner)
-        response = self.client.post(self.list_url, {"name": "Alex", "mobile": "5559876", "email": "alex@test.com", "city": "Portland"}, format="json")
+        response = self.client.post(self.list_url, {"name": "Alex", "mobile": "202-555-0124", "email": "alex@test.com", "city": "Portland"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(self.client.get(self.list_url).data["count"], 2)
         detail_url = reverse("audience_detail", kwargs={"pk": response.data["id"]})
@@ -64,7 +64,7 @@ class AudienceApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.record.refresh_from_db()
         self.assertEqual(self.record.email, "taylor@northwind.test")
-        self.assertEqual(self.record.mobile, "5551234")
+        self.assertEqual(self.record.mobile, "2025550123")
 
     def test_update_cannot_clear_either_required_identifier(self):
         self.client.force_authenticate(user=self.owner)
@@ -92,32 +92,99 @@ class AudienceApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Audience.objects.filter(name="No identifier").count(), 0)
 
+    def test_mobile_accepts_only_supported_us_phone_formats(self):
+        self.client.force_authenticate(user=self.owner)
+        valid_numbers = (
+            ("202-555-0124", "2025550124"),
+            ("(202) 555-0125", "2025550125"),
+            ("+12025550126", "12025550126"),
+            ("202 555 0127", "2025550127"),
+        )
+
+        for index, (mobile, stored_mobile) in enumerate(valid_numbers):
+            with self.subTest(mobile=mobile):
+                response = self.client.post(
+                    self.list_url,
+                    {
+                        "name": "Valid US number",
+                        "mobile": mobile,
+                        "email": f"valid-{index}@northwind.test",
+                    },
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+                self.assertEqual(response.data["mobile"], stored_mobile)
+
+    def test_updating_audience_phone_in_admin_display_format_succeeds(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            reverse("audience_detail", kwargs={"pk": self.record.pk}),
+            {"mobile": "202 555 0123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["mobile"], "2025550123")
+
+    def test_mobile_rejects_invalid_us_formats_and_lengths(self):
+        self.client.force_authenticate(user=self.owner)
+        invalid_numbers = (
+            "2025550123",
+            "202-555-123",
+            "+1202555012",
+            "+442055501234",
+            "(202)555-0123",
+        )
+
+        for index, mobile in enumerate(invalid_numbers):
+            with self.subTest(mobile=mobile):
+                response = self.client.post(
+                    self.list_url,
+                    {
+                        "name": "Invalid number",
+                        "mobile": mobile,
+                        "email": f"invalid-{index}@northwind.test",
+                    },
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(
+                    response.data["mobile"],
+                    [
+                        "Enter a US phone number as (XXX) XXX-XXXX, "
+                        "XXX-XXX-XXXX, or +1XXXXXXXXXX."
+                    ],
+                )
+
     def test_editing_record_to_an_existing_phone_returns_conflict(self):
         target = Audience.objects.create(
             company=self.company,
             integration=self.integration,
             name="Existing",
-            mobile="123456789",
+            mobile="202-555-0125",
             email="existing@example.com",
         )
         self.client.force_authenticate(user=self.owner)
 
         response = self.client.patch(
             reverse("audience_detail", kwargs={"pk": self.record.pk}),
-            {"name": "Updated contact", "mobile": "(123) 456-789", "email": "updated@example.com"},
+            {"name": "Updated contact", "mobile": "202-555-0125", "email": "updated@example.com"},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(
-            "An audience with phone number (123) 456-789 already exists.",
+            "An audience with phone number 202-555-0125 already exists.",
             response.data["mobile"][0],
         )
         target.refresh_from_db()
         self.record.refresh_from_db()
         self.assertEqual(target.name, "Existing")
         self.assertEqual(target.email, "existing@example.com")
-        self.assertEqual(self.record.mobile, "5551234")
+        self.assertEqual(self.record.mobile, "2025550123")
         self.assertEqual(Audience.objects.filter(company=self.company).count(), 2)
 
     def test_editing_phone_for_same_email_updates_existing_audience(self):
@@ -127,7 +194,7 @@ class AudienceApiTests(APITestCase):
             reverse("audience_detail", kwargs={"pk": self.record.pk}),
             {
                 "name": "Taylor New Number",
-                "mobile": "5559876",
+                "mobile": "202-555-0126",
                 "email": "TAYLOR@NORTHWIND.TEST",
                 "city": "Portland",
             },
@@ -138,7 +205,7 @@ class AudienceApiTests(APITestCase):
         self.assertEqual(response.data["id"], self.record.pk)
         self.assertEqual(Audience.objects.filter(company=self.company).count(), 1)
         self.record.refresh_from_db()
-        self.assertEqual(self.record.mobile, "5559876")
+        self.assertEqual(self.record.mobile, "2025550126")
         self.assertEqual(self.record.email.casefold(), "taylor@northwind.test")
         self.assertEqual(self.record.name, "Taylor New Number")
         self.assertEqual(self.record.city, "Portland")
@@ -150,7 +217,7 @@ class AudienceApiTests(APITestCase):
             reverse("audience_detail", kwargs={"pk": self.record.pk}),
             {
                 "name": "New Contact",
-                "mobile": "5559876",
+                "mobile": "202-555-0127",
                 "email": "new@northwind.test",
                 "city": "Portland",
             },
@@ -161,9 +228,9 @@ class AudienceApiTests(APITestCase):
         self.assertNotEqual(response.data["id"], self.record.pk)
         self.assertEqual(Audience.objects.filter(company=self.company).count(), 2)
         self.record.refresh_from_db()
-        self.assertEqual(self.record.mobile, "5551234")
+        self.assertEqual(self.record.mobile, "2025550123")
         self.assertEqual(self.record.email, "taylor@northwind.test")
-        new_record = Audience.objects.get(mobile="5559876")
+        new_record = Audience.objects.get(mobile="2025550127")
         self.assertEqual(new_record.name, "New Contact")
         self.assertEqual(new_record.email, "new@northwind.test")
         self.assertEqual(new_record.city, "Portland")
@@ -173,7 +240,7 @@ class AudienceApiTests(APITestCase):
             with transaction.atomic():
                 Audience.objects.create(
                     company=self.other_company,
-                    mobile="555-1234",
+                    mobile="202-555-0123",
                     email="duplicate@example.com",
                 )
 
@@ -202,7 +269,7 @@ class AudienceApiTests(APITestCase):
             self.list_url,
             {
                 "name": "Taylor Updated",
-                "mobile": "(555) 1234",
+                "mobile": "202-555-0123",
                 "email": "TAYLOR@NORTHWIND.TEST",
                 "city": "Portland",
             },
@@ -223,7 +290,7 @@ class AudienceApiTests(APITestCase):
             second_integration,
             {
                 "email": "taylor@northwind.test",
-                "phone": "555-1234",
+                "phone": "202-555-0123",
                 "name": "Taylor Smith updated",
             },
         )
@@ -238,7 +305,7 @@ class AudienceApiTests(APITestCase):
             self.integration,
             {
                 "email": "taylor@northwind.test",
-                "phone": "5557654",
+                "phone": "202-555-0128",
                 "name": "Taylor Re-submit",
             },
         )
@@ -249,7 +316,7 @@ class AudienceApiTests(APITestCase):
         self.assertTrue(
             Audience.objects.filter(
                 company=self.company,
-                mobile="5557654",
+                mobile="2025550128",
                 email="taylor@northwind.test",
             ).exists()
         )

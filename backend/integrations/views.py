@@ -6,7 +6,9 @@ from django.shortcuts import get_object_or_404
 from companies.permissions import IsCompanyAdmin
 from audience.services import (
     DuplicateAudiencePhone,
+    US_PHONE_FORMAT_MESSAGE,
     audience_values,
+    is_valid_us_phone,
     phone_identity,
     sync_audience_record,
 )
@@ -148,6 +150,13 @@ class PublicIntegrationSubmissionView(APIView):
                     if identifier
                     else "This field is required."
                 )
+            if (
+                identifier
+                and identifier["system_key"] == IntegrationField.SystemKeys.PHONE
+                and value not in (None, "", [])
+                and not is_valid_us_phone(value)
+            ):
+                errors[key] = US_PHONE_FORMAT_MESSAGE
             if field.field_type in {"select", "multi_select"} and value:
                 values = value if field.field_type == "multi_select" else [value]
                 invalid = [item for item in values if item not in field.options]

@@ -98,14 +98,14 @@ class IntegrationApiTests(APITestCase):
         )
         submit_response = self.client.post(
             submit_url,
-            {"email": "lead@northwind.test", "phone": "15550000001"},
+            {"email": "lead@northwind.test", "phone": "+15550000001"},
             format="json",
         )
         self.assertEqual(submit_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(IntegrationSubmission.objects.count(), 1)
         second_submit = self.client.post(
             submit_url,
-            {"email": "lead@northwind.test", "phone": "15550000002"},
+            {"email": "lead@northwind.test", "phone": "+15550000002"},
             format="json",
         )
         self.assertEqual(second_submit.status_code, status.HTTP_201_CREATED)
@@ -113,7 +113,7 @@ class IntegrationApiTests(APITestCase):
         self.assertEqual(IntegrationSubmission.objects.count(), 2)
         self.assertEqual(
             IntegrationSubmission.objects.order_by("-id").first().data["phone"],
-            "15550000002",
+            "+15550000002",
         )
         self.assertEqual(
             IntegrationSubmission.objects.order_by("-id").first().data["email"],
@@ -211,6 +211,40 @@ class IntegrationApiTests(APITestCase):
             "Failed to save response.",
         )
 
+    def test_public_submission_rejects_invalid_us_phone_format(self):
+        integration = Integration.objects.create(company=self.company, name="Invalid phone form")
+        integration.fields.create(
+            name="Phone number",
+            field_type="number",
+            system_key=IntegrationField.SystemKeys.PHONE,
+            required=True,
+        )
+        integration.fields.create(
+            name="Email",
+            field_type="email",
+            system_key=IntegrationField.SystemKeys.EMAIL,
+            required=True,
+        )
+
+        response = self.client.post(
+            reverse("integration_public_submit", kwargs={"public_id": integration.public_id}),
+            {"phone": "2025550123", "email": "invalid-phone@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["phone"],
+            "Enter a US phone number as (XXX) XXX-XXXX, "
+            "XXX-XXX-XXXX, or +1XXXXXXXXXX.",
+        )
+        self.assertEqual(IntegrationSubmission.objects.filter(integration=integration).count(), 0)
+        self.assertEqual(Audience.objects.filter(company=self.company).count(), 0)
+        self.assertEqual(
+            IntegrationSubmissionLog.objects.get(integration=integration).status,
+            IntegrationSubmissionLog.Status.ERROR,
+        )
+
     def test_submission_log_uses_generic_error_for_invalid_fields(self):
         integration = Integration.objects.create(company=self.company, name="Invalid payload form")
         integration.fields.create(name="Phone number", field_type="text")
@@ -219,7 +253,7 @@ class IntegrationApiTests(APITestCase):
         response = self.client.post(
             reverse("integration_public_submit", kwargs={"public_id": integration.public_id}),
             {
-                "Phone number": "15551234567",
+                "Phone number": "+15551234567",
                 "Email": "invalid@example.com",
                 "unexpected": "value",
             },
@@ -269,7 +303,7 @@ class IntegrationApiTests(APITestCase):
         submit_url = reverse("integration_public_submit", kwargs={"public_id": response.data["public_id"]})
         payload = {
             "email": "home@example.com",
-            "phone": "15551234567",
+            "phone": "+15551234567",
             "address_main": "123 Main St, Seattle, WA 98101",
             "address_street": "123 Main St",
             "address_city": "Seattle",
@@ -324,7 +358,7 @@ class IntegrationApiTests(APITestCase):
         )
         payload = {
             "email": "legacy@example.com",
-            "phone": "15551234567",
+            "phone": "+15551234567",
             "address_main": "Hausweingarten 923, 2145 Hausbrunn, Austria",
             "address_street": "Hausweingarten 923",
             "address_city": "Hausbrunn",
@@ -367,7 +401,7 @@ class IntegrationApiTests(APITestCase):
             submit_url,
             {
                 "email": "manual@example.com",
-                "phone": "15551234567",
+                "phone": "+15551234567",
                 "Your street address": "12 Main Street",
                 "Your city": "Hausbrunn",
                 "ZIP": "2145",
@@ -439,12 +473,12 @@ class IntegrationApiTests(APITestCase):
 
         first = self.client.post(
             submit_url,
-            {"Enter your phone number": "123", "Select your email": "person@example.com"},
+            {"Enter your phone number": "202-555-0131", "Select your email": "person@example.com"},
             format="json",
         )
         second = self.client.post(
             submit_url,
-            {"Enter your phone number": "456", "Select your email": "person@example.com"},
+            {"Enter your phone number": "(202) 555-0132", "Select your email": "person@example.com"},
             format="json",
         )
 
@@ -459,14 +493,14 @@ class IntegrationApiTests(APITestCase):
         self.assertTrue(
             Audience.objects.filter(
                 company=self.company,
-                mobile="123",
+                mobile="2025550131",
                 email="person@example.com",
             ).exists()
         )
         self.assertTrue(
             Audience.objects.filter(
                 company=self.company,
-                mobile="456",
+                mobile="2025550132",
                 email="person@example.com",
             ).exists()
         )
@@ -483,12 +517,12 @@ class IntegrationApiTests(APITestCase):
 
         response = self.client.post(
             reverse("integration_public_submit", kwargs={"public_id": integration.public_id}),
-            {"Phone number": "+1 (555) 888-1234", "Email": "new@example.com"},
+            {"Phone number": "+15558881234", "Email": "new@example.com"},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("+1 (555) 888-1234", response.data["detail"])
+        self.assertIn("+15558881234", response.data["detail"])
         self.assertEqual(
             IntegrationSubmissionLog.objects.get(integration=integration).error_message,
             "Failed to save response.",
@@ -506,19 +540,19 @@ class IntegrationApiTests(APITestCase):
         integration.fields.create(name="Email", field_type="email")
         first = IntegrationSubmission.objects.create(
             integration=integration,
-            data={"Mobile": "+1 (555) 123-4567", "Email": "old@example.com"},
+            data={"Mobile": "+15551234567", "Email": "old@example.com"},
             identity_key="email:old@example.com",
         )
         later = IntegrationSubmission.objects.create(
             integration=integration,
-            data={"Mobile": "15551234567", "Email": "duplicate@example.com"},
+            data={"Mobile": "+15551234567", "Email": "duplicate@example.com"},
             identity_key="email:duplicate@example.com",
         )
         submit_url = reverse("integration_public_submit", kwargs={"public_id": integration.public_id})
 
         response = self.client.post(
             submit_url,
-            {"Mobile": "1-555-123-4567", "Email": "new@example.com"},
+            {"Mobile": "+15551234567", "Email": "new@example.com"},
             format="json",
         )
 
@@ -543,14 +577,14 @@ class IntegrationApiTests(APITestCase):
         )
         first = self.client.post(
             reverse("integration_public_submit", kwargs={"public_id": integration.public_id}),
-            {"Phone number": "1-555-777-1234", "Email": "first@example.com"},
+            {"Phone number": "+15557771234", "Email": "first@example.com"},
             format="json",
         )
         original = IntegrationSubmission.objects.get(pk=first.data["submission_id"])
 
         second = self.client.post(
             reverse("integration_public_submit", kwargs={"public_id": integration.public_id}),
-            {"Phone number": "+1 (555) 777-1234", "Email": "updated@example.com"},
+            {"Phone number": "+15557771234", "Email": "updated@example.com"},
             format="json",
         )
 

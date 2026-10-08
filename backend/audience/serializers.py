@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from audience.models import Audience
-from audience.services import phone_identity
+from audience.services import US_PHONE_FORMAT_MESSAGE, is_valid_us_phone, phone_identity
 from integrations.models import Integration
 
 
@@ -31,9 +31,9 @@ class AudienceSerializer(serializers.ModelSerializer):
             errors["email"] = "Email is required."
         if not (mobile or "").strip():
             errors["mobile"] = "Phone number is required."
-        elif not phone_identity(mobile):
-            errors["mobile"] = "Enter a valid phone number."
-        else:
+        elif "mobile" in attrs and not is_valid_us_phone(mobile):
+            errors["mobile"] = US_PHONE_FORMAT_MESSAGE
+        elif "mobile" in attrs:
             identity = phone_identity(mobile)
             attrs["mobile"] = identity
             conflicts = Audience.objects.filter(mobile=identity)
